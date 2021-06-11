@@ -372,12 +372,51 @@ class LeafNode extends BPlusNode {
      */
     public static LeafNode fromBytes(BPlusTreeMetadata metadata, BufferManager bufferManager,
                                      LockContext treeContext, long pageNum) {
-        // TODO(proj2): implement
-        // Note: LeafNode has two constructors. To implement fromBytes be sure to
-        // use the constructor that reuses an existing page instead of fetching a
-        // brand new one.
+        // When we serialize a leaf node, we write:
+        //
+        //   a. the literal value 1 (1 byte) which indicates that this node is a
+        //      leaf node,
+        //   b. the page id (8 bytes) of our right sibling (or -1 if we don't have
+        //      a right sibling),
+        //   c. the number (4 bytes) of (key, rid) pairs this leaf node contains,
+        //      and
+        //   d. the (key, rid) pairs themselves.
+        //
+        // For example, the following bytes:
+        //
+        //   +----+-------------------------+-------------+----+-------------------------------+
+        //   | 01 | 00 00 00 00 00 00 00 04 | 00 00 00 01 | 03 | 00 00 00 00 00 00 00 03 00 01 |
+        //   +----+-------------------------+-------------+----+-------------------------------+
+        //    \__/ \_______________________/ \___________/ \__________________________________/
+        //     a               b                   c                         d
+        //
+        // represent a leaf node with sibling on page 4 and a single (key, rid)
+        // pair with key 3 and page id (3, 1).
 
-        return null;
+        Page page = bufferManager.fetchPage(treeContext, pageNum);
+        Buffer buffer = page.getBuffer();
+
+        //step 1. Check its leaf node only
+        byte nodeType = buffer.get();
+        assert (nodeType == (byte) 1);
+
+        //step 2. get right sibling.
+        long rightChildPageNum = buffer.getLong();
+        Optional<Long> rightSibling = rightChildPageNum != -1 ?  Optional.of(rightChildPageNum) : Optional.empty();
+
+        //step 3. get number of keys
+        int n = buffer.getInt();
+        List<DataBox> keys = new ArrayList<>();
+        List<RecordId> rids = new ArrayList<>();
+
+        //step 4. populate
+        for (int i = 0; i < n; ++i) {
+            keys.add(DataBox.fromBytes(buffer, metadata.getKeySchema()));
+            long rPageNum = buffer.getLong();
+            short rEntryNum = buffer.getShort();
+            rids.add(new RecordId(rPageNum, rEntryNum));
+        }
+        return new LeafNode(metadata, bufferManager, page, keys, rids, rightSibling, treeContext);
     }
 
     // Builtins ////////////////////////////////////////////////////////////////
